@@ -6,6 +6,22 @@ import Image from "next/image";
 
 const CANVAS_SIZE = 512;
 
+function normalizeHex(value: string): string | null {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const hex = trimmed.startsWith('#') ? trimmed.slice(1) : trimmed;
+
+  if (!/^(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(hex)) {
+    return null;
+  }
+
+  return `#${hex.toUpperCase()}`;
+}
+
 async function drawToCanvas(url: string): Promise<Blob | null> {
   const response = await fetch(url);
 
@@ -35,17 +51,16 @@ async function drawToCanvas(url: string): Promise<Blob | null> {
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [presetStyle, setPresetStyle] = useState<PresetStyleId>(PRESET_STYLES[0].id);
-  const [colorInput, setColorInput] = useState('');
+  const [palette, setPalette] = useState<string[]>(['', '']);
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const colors = useMemo(() => {
-    return colorInput
-      .split(/[\s,]+/)
-      .map((value) => value.trim())
-      .filter(Boolean);
-  }, [colorInput]);
+    return palette
+      .map((value) => normalizeHex(value))
+      .filter((value): value is string => Boolean(value));
+  }, [palette]);
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -156,15 +171,35 @@ export default function Home() {
             <label className="text-sm font-semibold" htmlFor="colors">
               Optional Colour Palette
             </label>
-            <input
-              id="colors"
-              name="colors"
-              className="w-full rounded-2xl border border-zinc-200 px-4 py-3 text-base focus:border-black focus:outline-none"
-              placeholder="#FFEE99, #221133 or space separated"
-              value={colorInput}
-              onChange={(event) => setColorInput(event.target.value)}
-            />
-            <p className="text-xs text-zinc-500">Separate hex values with commas or spaces.</p>
+            <div className="space-y-3">
+              {palette.map((value, index) => (
+                <div key={`palette-${index}`} className="flex items-center gap-4">
+                  <input
+                    aria-label={`Colour ${index + 1}`}
+                    className="h-12 w-20 cursor-pointer rounded-xl border border-zinc-200 p-1"
+                    type="color"
+                    value={value || '#000000'}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      setPalette((previous) => {
+                        const copy = [...previous];
+                        copy[index] = nextValue;
+                        return copy;
+                      });
+                    }}
+                  />
+                  <span className="text-sm text-zinc-600">{value ? value.toUpperCase() : 'Pick a colour'}</span>
+                </div>
+              ))}
+              <button
+                type="button"
+                className="rounded-xl border border-dashed border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 hover:border-zinc-900"
+                onClick={() => setPalette((previous) => [...previous, ''])}
+              >
+                Add Colour
+              </button>
+            </div>
+            <p className="text-xs text-zinc-500">Pick as many colours as you like to guide the palette.</p>
           </div>
 
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
