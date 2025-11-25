@@ -189,6 +189,23 @@ export default function Home() {
                     }}
                   />
                   <span className="text-sm text-zinc-600">{value ? value.toUpperCase() : 'Pick a colour'}</span>
+                  {palette.length > 1 ? (
+                    <button
+                      type="button"
+                      className="rounded-lg border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-600 transition hover:border-zinc-900 hover:text-zinc-900"
+                      onClick={() =>
+                        setPalette((previous) => {
+                          if (previous.length <= 1) {
+                            return previous;
+                          }
+
+                          return previous.filter((_, slotIndex) => slotIndex !== index);
+                        })
+                      }
+                    >
+                      Remove
+                    </button>
+                  ) : null}
                 </div>
               ))}
               <button
