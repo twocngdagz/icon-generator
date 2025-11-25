@@ -8,10 +8,10 @@ export function buildIconConcepts(basePrompt: string): string[] {
   }
 
   return [
-    `${prompt} main symbol`,
-    `${prompt} key object`,
-    `${prompt} emblem`,
-    `${prompt} abstract mark`,
+    `${prompt} main object symbol`,
+    `${prompt} playing area icon`,
+    `${prompt} accessory icon`,
+    `${prompt} trophy and emblem icon`,
   ];
 }
 
