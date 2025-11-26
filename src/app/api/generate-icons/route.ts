@@ -1,7 +1,7 @@
 import { Buffer } from 'buffer';
 import { NextResponse } from 'next/server';
 import Replicate from 'replicate';
-import { buildFinalPrompt, buildIconConcepts } from '@/lib/prompts';
+import { buildFinalPrompt } from '@/lib/prompts';
 import { PresetStyleId } from '@/lib/styles';
 
 function buildClient(): Replicate {
@@ -15,7 +15,7 @@ function buildClient(): Replicate {
 }
 
 function arrayBufferToDataUrl(input: ArrayBuffer | Uint8Array): string {
-  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+  const bytes = input instanceof ArrayBuffer ? new Uint8Array(input) : input;
 
   if (!bytes.byteLength) {
     return '';
@@ -142,6 +142,69 @@ function randomSeed(): number {
   return Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
 }
 
+const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
+async function fetchThemeItems(theme: string): Promise<string[]> {
+  const trimmedTheme = theme.trim();
+
+  if (!trimmedTheme) {
+    return [];
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error('Missing GEMINI_API_KEY');
+  }
+
+  const response = await fetch(GEMINI_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: `Suggest four concise, comma-separated items related to the theme "${trimmedTheme}". Respond with only the list.`,
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  const payload = (await response.json()) as {
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{ text?: string }>;
+      };
+    }>;
+    error?: { message?: string };
+  };
+
+  if (!response.ok) {
+    const message = payload.error?.message ?? 'Gemini request failed';
+    throw new Error(message);
+  }
+
+  const text =
+    payload.candidates?.flatMap((candidate) => candidate.content?.parts ?? [])
+      .map((part) => part?.text?.trim() ?? '')
+      .filter(Boolean)
+      .join(' ') ?? '';
+
+  return text
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
 export async function POST(request: Request): Promise<NextResponse> {
   try {
     const { prompt, presetStyle, colors = [] } = await request.json();
@@ -150,11 +213,13 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ message: 'prompt and presetStyle are required.' }, { status: 400 });
     }
 
-    const concepts = buildIconConcepts(prompt);
+    const themeItems = await fetchThemeItems(prompt);
 
-    if (!concepts.length) {
-      return NextResponse.json({ message: 'Prompt must contain descriptive text.' }, { status: 400 });
+    if (themeItems.length < 1) {
+      return NextResponse.json({ message: 'Unable to derive icon concepts. Try a more descriptive prompt.' }, { status: 400 });
     }
+
+    const concepts = themeItems.map((item) => `${prompt} ${item} icon`.trim());
 
     const replicate = buildClient();
 
@@ -163,6 +228,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const urls = await Promise.all(
       concepts.map(async (concept, index) => {
         const promptText = buildFinalPrompt(prompt, presetStyle as PresetStyleId, colors, concept);
+        console.log('Generating icon with prompt:', promptText);
         const output = await replicate.run('black-forest-labs/flux-schnell', {
           input: {
             prompt: promptText,
@@ -179,7 +245,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       }),
     );
 
-    const filteredUrls = urls.filter((url) => typeof url === 'string' && url.length > 0);
+    const filteredUrls = urls.filter((url) => url.length > 0);
 
     if (!filteredUrls.length) {
       return NextResponse.json({ message: 'Replicate returned no images. Try a more descriptive prompt.' }, { status: 502 });
@@ -189,8 +255,12 @@ export async function POST(request: Request): Promise<NextResponse> {
   } catch (error) {
     console.error('Error generating icons', error);
 
-    if (error instanceof Error && error.message === 'Missing REPLICATE_API_TOKEN') {
-      return NextResponse.json({ message: 'Replicate API token not configured.' }, { status: 500 });
+    if (error instanceof Error && (error.message === 'Missing REPLICATE_API_TOKEN' || error.message === 'Missing GEMINI_API_KEY')) {
+      const message =
+        error.message === 'Missing REPLICATE_API_TOKEN'
+          ? 'Replicate API token not configured.'
+          : 'Gemini API key not configured.';
+      return NextResponse.json({ message }, { status: 500 });
     }
 
     return NextResponse.json({ message: 'Failed to generate icons.' }, { status: 500 });
